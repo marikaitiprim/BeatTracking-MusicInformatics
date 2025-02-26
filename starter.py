@@ -3,55 +3,32 @@ import torch
 import torch.nn as nn
 import sklearn
 import numpy as np
+from itertools import pairwise
+from object_storage import object_open
+import torchaudio
+from torchaudio.prototype.pipelines import VGGISH
 # import mir_eval
-from transformers import Wav2Vec2Processor, Wav2Vec2Model 
 
-# Load pretrained Wav2Vec2 model and processor from Hugging Face
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h")
-wav2vec2_model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-large-960h")
+# use GPU if available, otherwise, use CPU
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-class Encoder(nn.Module):       #encoder architecture
-    def __init__(self, embed_dim=1024, num_layers=8, num_heads=8, ff_dim=1024, dropout=0.1):
-        """
-        Transformer Encoder similar to Wav2Vec2 and HuBERT.
-        
-        Args:
-            embed_dim (int): Dimension of embeddings.
-            num_layers (int): Number of Transformer encoder layers.
-            num_heads (int): Number of attention heads.
-            ff_dim (int): Hidden dimension of feed-forward network.
-            dropout (float): Dropout rate.
-        """
-
+class VGGishPlusMLP(nn.Module):
+    def __init__(self, finetuning: bool, mlp_hidden_dimensions: tuple = ()):
         super().__init__()
-        self.wav2vec2 = wav2vec2_model  # Pretrained Wav2Vec2 model
-        encoder_layer = nn.TransformerEncoderLayer( #“Attention Is All You Need”. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017. paper
-            d_model=embed_dim,
-            nhead=num_heads,
-            dim_feedforward=ff_dim,
-            dropout=dropout,
-            activation="gelu",  # Typically used in Wav2Vec2 -> checkkkkk
-            batch_first=True     # Ensures (batch, seq, feature) input format
-        )
-        
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers) #stack of transformer encoder layers
+        self.vggish = VGGISH.get_model()
+        for param in self.vggish.parameters():
+            param.requires_grad = finetuning
+
+        in_dims = (128,) + mlp_hidden_dimensions
+        self.mlp = torch.nn.Sequential()
+        for in_dim, out_dim in pairwise(in_dims):
+            self.mlp.append(nn.Linear(in_features=in_dim, out_features=out_dim))
+            self.mlp.append(nn.ReLU())
+        self.mlp.append(nn.Linear(in_features=in_dims[-1], out_features=1))
+
 
     def forward(self, x):
-        """
-        Forward pass through the Transformer Encoder.
-        
-        Args:
-            x (Tensor): Input tensor of shape (batch_size, seq_len, embed_dim).
-            
-        Returns:
-            Tensor: Encoded representations (batch_size, seq_len, embed_dim).
-        """
-
-        # Process the raw audio with Wav2Vec2 (Feature extraction)
-        input_values = processor(x, return_tensors="pt", padding=True, sampling_rate=16000).input_values
-        features = self.wav2vec2(input_values).last_hidden_state
-        return self.encoder(features)
-    
+        return self.mlp(self.vggish(x))
 
 def load_audio(audio_path): #load audio and return signal and sample rate
     y, sr = librosa.load(audio_path)
@@ -63,13 +40,17 @@ def logmel_spectogram(audio_path): #returns log mel spectorgram
     log_mel = librosa.power_to_db(mel, ref=np.max) #log mel spectrogram
     return log_mel
 
-# def NTXentLoss(): #loss function chosen by the paper 
-#     return 0
+def vggish_melspectrogram(audio_path):
+    melspec_proc = VGGISH.get_input_processor()
+    waveform, original_rate = torchaudio.load(object_open(audio_path, 'rb'))
+    waveform = waveform.squeeze(0)
+    waveform = torchaudio.functional.resample(waveform, original_rate, VGGISH.sample_rate)
+    melspec = melspec_proc(waveform)
+    return melspec
 
 
 # def train():
 #     return 0
-
 
 # def evaluate(): #mir eval library
 #     return 0
@@ -80,14 +61,11 @@ def logmel_spectogram(audio_path): #returns log mel spectorgram
 
 def beatTracker(audio_path):
     y, sr = load_audio(audio_path)
-    model = Encoder()
-    output = model(y)
-    return output
-    # return beats, downbeats #return vector of beat times in seconds + downbeats
+    model = VGGishPlusMLP(finetuning=True, mlp_hidden_dimensions=(64,)).to(device)
+    return beats, downbeats #return vector of beat times in seconds + downbeats
 
 if __name__ == '__main__':
     inputfile = '/Users/marikaitiprimenta/Desktop/Music Informatics/cw1/BallroomData/ChaChaCha/Albums-Cafe_Paradiso-05.wav'
-    print(beatTracker(inputfile))
-    # beats, downbeats = beatTracker(inputfile)
-    # print(beats)
-    # print(downbeats)
+    beats, downbeats = beatTracker(inputfile)
+    print(beats)
+    print(downbeats)
