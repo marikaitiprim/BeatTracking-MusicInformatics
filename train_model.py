@@ -45,7 +45,12 @@ def evaluate(model, data_loader, criterion):
         for batch_inputs, batch_labels in data_loader:
             batch_inputs = batch_inputs.to(device)
             batch_labels = batch_labels.to(device)
-            batch_outputs = model(batch_inputs).squeeze(dim=1)
+
+            batch_size, num_setofframes, num_channels, mel_bins, time_step = batch_inputs.shape
+            batch_inputs = batch_inputs.reshape(batch_size*num_setofframes, num_channels, mel_bins, time_step) #reshape to (batch_size*num_setofframes, num_channels, mel_bins, time_step)
+            batch_labels = batch_labels.reshape(batch_size*num_setofframes, time_step) #reshape to (batch_size*num_setofframes, time_step)
+
+            batch_outputs = model(batch_inputs)
             batch_binary_outputs = torch.where(batch_outputs < 0.5, 0, 1)
             accuracy += (batch_binary_outputs == batch_labels).sum().item()
             epoch_loss += criterion(batch_outputs, batch_labels).item()
@@ -69,7 +74,6 @@ def train(model, train_loader, valid_loader, criterion, optimizer, num_epochs, s
 
             batch_size, num_setofframes, num_channels, mel_bins, time_step = batch_inputs.shape
             batch_inputs = batch_inputs.reshape(batch_size*num_setofframes, num_channels, mel_bins, time_step) #reshape to (batch_size*num_setofframes, num_channels, mel_bins, time_step)
-
             batch_labels = batch_labels.reshape(batch_size*num_setofframes, time_step) #reshape to (batch_size*num_setofframes, time_step)
             
             # forward + backward + optimize
