@@ -8,13 +8,14 @@ from torch.utils.data import TensorDataset, DataLoader, Dataset
 import torchaudio
 from torchaudio.prototype.pipelines import VGGISH
 import load_data
+from tqdm import tqdm
 
 # use GPU if available, otherwise, use CPU
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 class VGGishfinetune(nn.Module):
     """VGGish model with the last layer unfrozen for fine-tuning."""
-    def __init__(self):
+    def __init__(self, mlp_hidden_dimensions: tuple = ()):
         super().__init__()
 
         self.vggish = VGGISH.get_model()    #get the pretrained vggish model
@@ -24,8 +25,15 @@ class VGGishfinetune(nn.Module):
         for param in list(self.vggish.parameters())[-2:]:   #unfreeze the last layer - weights and biases
             param.requires_grad = True
 
+        in_dims = (128,) + mlp_hidden_dimensions
+        self.mlp = torch.nn.Sequential()
+        for in_dim, out_dim in zip(in_dims[0:-1], mlp_hidden_dimensions):
+            self.mlp.append(nn.Linear(in_features=in_dim, out_features=out_dim))
+            self.mlp.append(nn.ReLU())
+        self.mlp.append(nn.Linear(in_features=in_dims[-1], out_features=64)) #time steps output
+
     def forward(self, x):
-        return self.vggish(x)
+        return self.mlp(self.vggish(x))
     
 
 def evaluate(model, data_loader, criterion):
@@ -55,12 +63,17 @@ def train(model, train_loader, valid_loader, criterion, optimizer, num_epochs, s
     valid_accuracies = []
     for epoch in range(num_epochs):
         epoch_loss = 0
-        for batch_inputs, batch_labels in train_loader:
+        for batch_inputs, batch_labels in tqdm(train_loader):
             batch_inputs = batch_inputs.to(device)
             batch_labels = batch_labels.to(device)
 
+            batch_size, num_setofframes, num_channels, mel_bins, time_step = batch_inputs.shape
+            batch_inputs = batch_inputs.reshape(batch_size*num_setofframes, num_channels, mel_bins, time_step) #reshape to (batch_size*num_setofframes, num_channels, mel_bins, time_step)
+
+            batch_labels = batch_labels.reshape(batch_size*num_setofframes, time_step) #reshape to (batch_size*num_setofframes, time_step)
+            
             # forward + backward + optimize
-            outputs = model(batch_inputs).squeeze(dim=1)
+            outputs = model(batch_inputs)        #squeeze removes the channel dimension
             loss = criterion(outputs, batch_labels)
             optimizer.zero_grad()
             loss.backward()
@@ -96,8 +109,14 @@ if __name__ == '__main__':
     audio_dir = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomData"
     annotation_dir = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomAnnotations-master"
 
-    train_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=32)
+    train_loader, test_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=32)
 
+
+    model = VGGishfinetune().to(device)
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    train(model, train_loader, test_loader, criterion, optimizer, num_epochs=25, saved_model='best_model.pth')
     
 
     # for mel_spec, beats in train_loader:

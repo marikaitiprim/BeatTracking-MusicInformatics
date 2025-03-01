@@ -28,10 +28,12 @@ class BeatDataset(Dataset):
     def __init__(self, audio_paths, annotation_paths):
         self.audio_paths, self.annotation_paths = audio_paths, annotation_paths
 
-        self.min_length = float('inf') # Determine the minimum length of the spectrograms
-        for audio_path in self.audio_paths:
-            spec = self.vggish_melspectrogram(audio_path)
-            self.min_length = min(self.min_length, spec.shape[0])
+        # self.min_length = float('inf') # Determine the minimum length of the spectrograms
+        # for audio_path in self.audio_paths:
+        #     spec = self.vggish_melspectrogram(audio_path)
+        #     self.min_length = min(self.min_length, self.num_setofframes)
+
+        self.min_length = 30
 
     def load_annotations(self, annotation_path):
         annot = np.loadtxt(annotation_path)
@@ -46,13 +48,15 @@ class BeatDataset(Dataset):
         waveform, original_rate = torchaudio.load(audio_path)
         waveform = waveform.squeeze(0)
         waveform = torchaudio.functional.resample(waveform, original_rate, VGGISH.sample_rate)
-        melspec = melspec_proc(waveform)
+        melspec = melspec_proc(waveform) #(num_setofframes, 96, 64)
 
-        melspec = torch.cat([melspec], dim=0)  # Shape: (num_frames, 1, 96, 64)
-
-       # Truncate the spectrogram to match the fixed length
+         # Truncate the spectrogram to match the fixed length
         if melspec.shape[0] > self.min_length:
-            melspec = melspec[:self.min_length, :, :, :]
+            melspec = melspec[:self.min_length, :, :]
+
+        melspec = torch.cat([melspec], dim=0)  # Shape: (num_setofframes, 1, 96, 64)
+
+        # self.num_setofframes = melspec.shape[0] # Number of set of frames in the spectrogram
 
         return melspec
 
@@ -65,9 +69,16 @@ class BeatDataset(Dataset):
         annotation_path = self.annotation_paths[idx]
 
         mel_spec = self.vggish_melspectrogram(audio_path)
-        beats = self.load_annotations(annotation_path)
+        annotations = self.load_annotations(annotation_path)
 
-        return mel_spec.unsqueeze(0), beats  # Add channel dim
+        beats = torch.zeros(mel_spec.shape[0]*mel_spec.shape[3])   #matrix of zeros of shape (num_setofframes, 64)
+        for beat_time in annotations[:, 0]:
+            beat_time_samples = beat_time * VGGISH.sample_rate
+            for frame_index in range(mel_spec.shape[0]* mel_spec.shape[3]):
+                if frame_index*160 + 400 > beat_time_samples and frame_index*160 <= beat_time_samples: #hop_size = 160 and frame_size = 400
+                    beats[frame_index] = 1
+
+        return mel_spec, beats 
 
 
 def load_data(audio_dir, annotation_dir, batch_size=32):
