@@ -149,8 +149,21 @@ if __name__ == '__main__':
 
     train_loader, test_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=32)
 
+    num_positive = 0
+    num_negative = 0
+
+    for _, batch_labels in train_loader:  # Extract only labels
+        num_positive += (batch_labels == 1).sum().item()
+        num_negative += (batch_labels == 0).sum().item()
+
+    if num_positive > 0:  
+        pos_weight = torch.tensor([num_negative / num_positive], dtype=torch.float32).to(device)
+    else:
+        pos_weight = torch.tensor([1.0], dtype=torch.float32).to(device)  # Default to 1 if no positives
+
     model = VGGishfinetune().to(device)
-    criterion = nn.BCEWithLogitsLoss()
+    # pos_weight = torch.ones([64]) #initialize the positive weights
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     train_losses, valid_losses, train_accuracies, valid_accuracies = train(model, train_loader, test_loader, criterion, optimizer, num_epochs=10, saved_model='best_model.pth')
