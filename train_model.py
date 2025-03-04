@@ -3,32 +3,58 @@ import torch.nn as nn
 from sklearn.model_selection import train_test_split
 from torchaudio.prototype.pipelines import VGGISH
 import load_data
-import test_model
+# import test_model
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 
-class VGGishfinetune(nn.Module):
-    """VGGish model with the last layer unfrozen for fine-tuning."""
-    def __init__(self, mlp_hidden_dimensions: tuple = ()):
-        super().__init__()
+# class VGGishfinetune(nn.Module):
+#     """VGGish model with the last layer unfrozen for fine-tuning."""
+#     def __init__(self, mlp_hidden_dimensions: tuple = ()):
+#         super().__init__()
 
-        self.vggish = VGGISH.get_model()    #get the pretrained vggish model
-        for param in self.vggish.parameters():  #freeze the layers
-            param.requires_grad = False
+#         self.vggish = VGGISH.get_model()    #get the pretrained vggish model
+#         for param in self.vggish.parameters():  #freeze the layers
+#             param.requires_grad = False
 
-        for param in list(self.vggish.parameters())[-2:]:   #unfreeze the last layer - weights and biases
-            param.requires_grad = True
+#         for param in list(self.vggish.parameters())[-2:]:   #unfreeze the last layer - weights and biases
+#             param.requires_grad = True
 
-        in_dims = (128,) + mlp_hidden_dimensions
-        self.mlp = torch.nn.Sequential()
-        for in_dim, out_dim in zip(in_dims[0:-1], mlp_hidden_dimensions):
-            self.mlp.append(nn.Linear(in_features=in_dim, out_features=out_dim))
-            self.mlp.append(nn.ReLU())
-        self.mlp.append(nn.Linear(in_features=in_dims[-1], out_features=64)) #time steps output
+#         in_dims = (128,) + mlp_hidden_dimensions
+#         self.mlp = torch.nn.Sequential()
+#         for in_dim, out_dim in zip(in_dims[0:-1], mlp_hidden_dimensions):
+#             self.mlp.append(nn.Linear(in_features=in_dim, out_features=out_dim))
+#             self.mlp.append(nn.ReLU())
+#         self.mlp.append(nn.Linear(in_features=in_dims[-1], out_features=64)) #time steps output
+
+#     def forward(self, x):
+#         return self.mlp(self.vggish(x))
+
+
+# Define the CNN model
+class CNNModel(nn.Module):
+    def __init__(self, num_classes=64):
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1)
+        self.fc1 = nn.Linear(128 * 12 * 8, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        return self.mlp(self.vggish(x))
+        x = self.relu(self.conv1(x))
+        x = self.pool(x)
+        x = self.relu(self.conv2(x))
+        x = self.pool(x)
+        x = self.relu(self.conv3(x))
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.relu(self.fc1(x))
+        x = self.fc2(x) #time steps number as output 
+        return x
+    
     
 def calculate_precision(true_positives, false_positives):
     precision = 0.
@@ -130,6 +156,8 @@ def train(model, train_loader, valid_loader, criterion, optimizer, num_epochs, s
 
         epoch_loss /= num_batches
 
+        scheduler.step()
+
         # print training loss
         print(f'[{epoch+1}] loss: {epoch_loss:.6f}')
         train_losses.append(epoch_loss)
@@ -171,13 +199,16 @@ if __name__ == '__main__':
     audio_dir = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomData"
     annotation_dir = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomAnnotations-master"
 
-    train_loader, test_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=32) #try with 64
+    train_loader, test_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=32) 
 
-    model = VGGishfinetune().to(device)
+    # model = VGGishfinetune().to(device)
+    model = CNNModel().to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_loss(train_loader))
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001) #overfitting with 0.01 (trainloss goes down - validationloss goes up) - 0.001 default
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)   #no 0.01 lots of overfitting
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)  # Reduce LR every 10 epochs
 
-    train_losses, valid_losses, train_accuracies, valid_accuracies = train(model, train_loader, test_loader, criterion, optimizer, num_epochs=30, saved_model='best_model.pth')
+
+    train_losses, valid_losses, train_accuracies, valid_accuracies = train(model, train_loader, test_loader, criterion, optimizer, num_epochs=100, saved_model='best_model.pth')
     plot_metrics(train_losses, valid_losses, valid_accuracies)
 
     # test the model
