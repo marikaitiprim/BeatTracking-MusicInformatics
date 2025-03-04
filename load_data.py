@@ -67,7 +67,7 @@ class BeatDataset(Dataset):
         return mel_spec, beats 
 
 
-def load_data(audio_dir, annotation_dir, batch_size=16):
+def load_data(audio_dir, annotation_dir, batch_size=32):
 
     # Create dataset
     audio_paths, annotation_paths = create_dataset(audio_dir, annotation_dir)
