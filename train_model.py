@@ -3,10 +3,10 @@ import torch.nn as nn
 from sklearn.model_selection import train_test_split
 from torchaudio.prototype.pipelines import VGGISH
 import load_data
-# import test_model
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, Dataset
+import scipy.signal
+import numpy as np
 
 # class VGGishfinetune(nn.Module):
 #     """VGGish model with the last layer unfrozen for fine-tuning."""
@@ -29,30 +29,195 @@ from torch.utils.data import DataLoader, Dataset
 
 #     def forward(self, x):
 #         return self.mlp(self.vggish(x))
+    
+
+# class VGGishfinetune_lstm(nn.Module):
+#     def __init__(self, input_dim=128, hidden_dim=64):
+#         super().__init__()
+
+#         self.vggish = VGGISH.get_model()    #get the pretrained vggish model
+#         for param in self.vggish.parameters():  #freeze the layers
+#             param.requires_grad = False
+
+#         for param in list(self.vggish.parameters())[-2:]:   #unfreeze the last layer - weights and biases
+#             param.requires_grad = True
+
+#         self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=1, batch_first=True, dropout=0.3, bidirectional=True)
+#         self.fc = nn.Linear(hidden_dim * 2, 64)  # Bidirectional LSTM
+
+#     def forward(self, x):
+#         x = self.vggish(x)
+#         x, _ = self.lstm(x)
+#         x = self.fc(x)
+#         return x
+    
+# class VGGishfinetune(nn.Module):
+#     def __init__(self, input_dim=128, hidden_dim=128, dropout_rate=0.3):
+#         super().__init__()
+        
+#         # Pre-trained VGGish model
+#         self.vggish = VGGISH.get_model()
+        
+#         # Freeze most layers
+#         for param in self.vggish.parameters():
+#             param.requires_grad = False
+        
+#         # Unfreeze last two layers
+#         for param in list(self.vggish.parameters())[-2:]:
+#             param.requires_grad = True
+        
+#         # Bidirectional LSTM with more robust configuration
+#         self.lstm = nn.LSTM(
+#             input_size=input_dim, 
+#             hidden_size=hidden_dim, 
+#             num_layers=3, 
+#             batch_first=True, 
+#             dropout=dropout_rate, 
+#             bidirectional=True
+#         )
+        
+#         # Enhanced fully connected layers
+#         self.fc = nn.Sequential(
+#             nn.Linear(hidden_dim * 2, 256),  # Increased dimensionality
+#             nn.BatchNorm1d(256),
+#             nn.ReLU(),
+#             nn.Dropout(dropout_rate),
+#             nn.Linear(256, 64)
+#         )
+    
+#     def forward(self, x):
+#         # Feature extraction
+#         x = self.vggish(x)
+        
+#         # Temporal processing
+#         x, _ = self.lstm(x)
+
+#         # x = x.view(x.size(0), -1)
+        
+#         # Apply fully connected layers
+#         x = self.fc(x)
+        
+#         return x
+
+# class VGGishfinetune(nn.Module):
+#     """VGGish model with the last layer unfrozen for fine-tuning."""
+#     def __init__(self, mlp_hidden_dimensions: tuple = (), 
+#                  lstm_hidden_size=64, 
+#                  lstm_layers=1, 
+#                  dropout_rate=0.3):
+#         super().__init__()
+
+#         self.vggish = VGGISH.get_model()    #get the pretrained vggish model
+#         for param in self.vggish.parameters():  #freeze the layers
+#             param.requires_grad = False
+
+#         for param in list(self.vggish.parameters())[-2:]:   #unfreeze the 2 last layer - weights and biases
+#             param.requires_grad = True
+
+#         self.lstm = nn.LSTM(
+#             input_size=128, 
+#             hidden_size=lstm_hidden_size, 
+#             num_layers=lstm_layers,
+#             batch_first=True, 
+#             bidirectional=True,
+#             dropout=dropout_rate if lstm_layers > 1 else 0
+#         )
+
+#         in_dims = (lstm_hidden_size*2,) + mlp_hidden_dimensions
+        
+#         mlp_layers = []
+#         for in_dim, out_dim in zip(in_dims[:-1], mlp_hidden_dimensions):
+#             mlp_layers.extend([
+#                 nn.Linear(in_features=in_dim, out_features=out_dim),
+#                 nn.BatchNorm1d(out_dim),
+#                 nn.ReLU(),
+#                 nn.Dropout(dropout_rate)
+#             ])
+        
+#         # Final layer
+#         mlp_layers.append(nn.Linear(in_features=in_dims[-1], out_features=64))
+        
+#         self.mlp = nn.Sequential(*mlp_layers)
+#     def forward(self, x):
+#         x = self.vggish(x)
+#         x, _ = self.lstm(x)
+#         return self.mlp(x)
 
 
 # Define the CNN model
-class CNNModel(nn.Module):
+# class CNNModel(nn.Module):
+#     def __init__(self, num_classes=64):
+#         super(CNNModel, self).__init__()
+#         self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
+#         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+#         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
+#         self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1)
+#         self.fc1 = nn.Linear(128 * 12 * 8, 128)
+#         self.fc2 = nn.Linear(128, num_classes)
+#         self.relu = nn.ReLU()
+#         self.dropout = nn.Dropout(p=0.7)
+
+#     def forward(self, x):
+#         x = self.relu(self.conv1(x))
+#         x = self.pool(x)
+#         x = self.relu(self.conv2(x))
+#         x = self.pool(x)
+#         x = self.relu(self.conv3(x))
+#         x = self.pool(x)
+#         x = x.view(x.size(0), -1)
+#         x = self.relu(self.fc1(x))
+#         x = self.dropout(x)
+#         x = self.fc2(x) 
+        # return x
+    
+class CNNBeatTracker(nn.Module):
     def __init__(self, num_classes=64):
-        super(CNNModel, self).__init__()
+        super(CNNBeatTracker, self).__init__()
+        
+        # CNN Feature Extractor
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1)
-        self.fc1 = nn.Linear(128 * 12 * 8, 128)
-        self.fc2 = nn.Linear(128, num_classes)
+        
+        # Batch Normalization
+        self.bn1 = nn.BatchNorm2d(32)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.bn3 = nn.BatchNorm2d(128)
+        
+        # Fully Connected Layers
+        self.fc1 = nn.Linear(128 * 12 * 8, 256)
+        self.fc2 = nn.Linear(512, num_classes)
+        
+        # Activation and Dropout
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=0.3)
 
+        self.lstm = nn.LSTM(input_size=128 * 12 * 8, hidden_size=256, num_layers=1, batch_first=True, bidirectional=True)
+    
     def forward(self, x):
-        x = self.relu(self.conv1(x))
+        # CNN Feature Extraction
+        x = self.relu(self.bn1(self.conv1(x)))
         x = self.pool(x)
-        x = self.relu(self.conv2(x))
+        
+        x = self.relu(self.bn2(self.conv2(x)))
         x = self.pool(x)
-        x = self.relu(self.conv3(x))
+        
+        x = self.relu(self.bn3(self.conv3(x)))
         x = self.pool(x)
+        
+        # Flatten
         x = x.view(x.size(0), -1)
-        x = self.relu(self.fc1(x))
-        x = self.fc2(x) #time steps number as output 
+
+        x, _ = self.lstm(x)
+
+        #maxpool
+        
+        # # Fully Connected Layers
+        # x = self.relu(self.fc1(x))
+        # x = self.dropout(x)
+        x = self.fc2(x)
+        
         return x
     
     
@@ -108,7 +273,16 @@ def evaluate(model, data_loader, criterion):
 
             batch_outputs = model(batch_inputs) #(960,64)
 
-            batch_binary_outputs = torch.where(batch_outputs < 0.5, 0, 1)
+            batch_outputs_cpu = batch_outputs.cpu().numpy()
+            batch_binary_outputs = np.zeros(batch_outputs_cpu.shape)  # Initialize with all zeros
+
+            for i in range(batch_outputs_cpu.shape[1]):
+                detected_peaks_indices, _ = scipy.signal.find_peaks(batch_outputs_cpu[:, i], height=0.5, distance=20) #post-processing peak picking for extracting the beats
+                batch_binary_outputs[detected_peaks_indices, i] = 1  # Set beats to 1
+
+            # batch_binary_outputs = torch.where(batch_outputs < 0.5, 0, 1) #without peak picking
+
+            batch_binary_outputs = torch.tensor(batch_binary_outputs, dtype=torch.float32).to(device)
 
             true_positives += ((batch_binary_outputs == batch_labels) & (batch_binary_outputs == 1)).sum().item() #All beat predictions - TP
             false_positives += ((batch_binary_outputs != batch_labels) & (batch_binary_outputs == 1)).sum().item() #FP
@@ -175,7 +349,7 @@ def train(model, train_loader, valid_loader, criterion, optimizer, num_epochs, s
                 best_valid_acc = valid_f1
                 print('Saving best model')
                 torch.save(model.state_dict(), saved_model)
-    return train_losses, valid_losses, train_accuracies, valid_accuracies
+    return train_losses, valid_losses, valid_accuracies
 
 def plot_metrics(train_losses, valid_losses, valid_accuracies):
     fig, (ax1, ax2) = plt.subplots(2)
@@ -189,6 +363,7 @@ def plot_metrics(train_losses, valid_losses, valid_accuracies):
     ax2.set_xlabel('epochs')
     ax2.set_title('Validation Accuracy')
     plt.show()
+    plt.savefig("best_model_metrics.png")
 
 if __name__ == '__main__':
 
@@ -199,16 +374,17 @@ if __name__ == '__main__':
     audio_dir = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomData"
     annotation_dir = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomAnnotations-master"
 
-    train_loader, test_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=32) 
+    train_loader, test_loader = load_data.load_data(audio_dir, annotation_dir, batch_size=1) 
 
     # model = VGGishfinetune().to(device)
-    model = CNNModel().to(device)
+    # model = CNNModel().to(device)
+    model = CNNBeatTracker().to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_loss(train_loader))
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)   #no 0.01 lots of overfitting
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)   #no 0.01 lots of overfitting
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)  # Reduce LR every 10 epochs
 
 
-    train_losses, valid_losses, train_accuracies, valid_accuracies = train(model, train_loader, test_loader, criterion, optimizer, num_epochs=100, saved_model='best_model.pth')
+    train_losses, valid_losses, valid_accuracies = train(model, train_loader, test_loader, criterion, optimizer, num_epochs=20, saved_model='best_model.pth')
     plot_metrics(train_losses, valid_losses, valid_accuracies)
 
     # test the model

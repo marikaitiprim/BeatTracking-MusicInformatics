@@ -1,10 +1,10 @@
 import torch
-import load_data
 import train_model
 import torchaudio
 import matplotlib.pyplot as plt
 from torchaudio.prototype.pipelines import VGGISH
-import IPython.display as ipd
+import numpy as np
+import mir_eval
 
 def vggish_melspectrogram(audio_path):    #returns vggish melspectrogram - adapted for testing
     melspec_proc = VGGISH.get_input_processor()
@@ -17,7 +17,6 @@ def vggish_melspectrogram(audio_path):    #returns vggish melspectrogram - adapt
     melspec = torch.cat([melspec], dim=0)  # Shape: (num_setofframes, 1, 96, 64)
 
     return melspec
-
 
 def beatTracker(audio_path):
 
@@ -32,29 +31,51 @@ def beatTracker(audio_path):
         xtest = xtest.to(device)
         output = model(xtest)
         
-        binary_output = torch.where(output < 0.5, 0, 1)
+        binary_output = torch.where(output < 0.5, 0, 1) #convert output of the model into binary output (as done during training)
 
-        #convert to seconds to extract the beats
-        # beats = 
+        beat_times = []
+    
+        for frame_set_index, beat_frames in enumerate(binary_output):
+            for frame_index, is_beat in enumerate(beat_frames):
 
+                if is_beat:
+                    # Calculate the center of the frame in samples
+                    frame_center_samples = ((frame_index + 64*frame_set_index) * 160) + (400 // 2)
+            
+                    # Convert samples to seconds
+                    beat_time = frame_center_samples / VGGISH.sample_rate
+                    beat_times.append(beat_time)
 
-    return binary_output.cpu().numpy(), downbeats
+    return beat_times
 
-def plot_beats(audio_path, beats):
+def plot_beats(audio_path, beats_annotations, beats):
 
-    melspec_proc = VGGISH.get_input_processor()
-    waveform, _ = torchaudio.load(audio_path)
+    waveform, sr = torchaudio.load(audio_path)
+    waveform = waveform.squeeze()
+    
+    total_duration = len(waveform) / sr
+    time_axis = np.linspace(0, total_duration, len(waveform))
 
-    plt.figure(figsize=(14, 3))
+    plt.figure(figsize=(14, 6))
+    plt.subplot(2,1,1)
+    plt.plot(time_axis, waveform, 'c')
+    print(beats_annotations)
+    plt.vlines(beats_annotations, ymin=min(waveform), ymax=max(waveform), color='r', label='Beats', linewidth=2)
     plt.xlabel('Time (s)')
     plt.ylabel('Amplitude')
-    plt.plot(waveform, 'c')
-
-    plt.title('Beat tracking')
-    for beat in beats:
-        plt.axvline(beat, ymin=0.5, color='g')
-
-    ipd.display(ipd.Audio(audio_path))
+    plt.title('Beat tracking ground truth')
+    
+    plt.subplot(2,1,2)
+    plt.plot(time_axis, waveform, 'c')
+    print(beats)
+    plt.vlines(beats, ymin=min(waveform), ymax=max(waveform), color='r', label='Beats', linewidth=2)
+    plt.xlabel('Time (s)')
+    plt.ylabel('Amplitude')
+    plt.title('Beat tracking predictions')
+    
+    plt.tight_layout()
+    plt.savefig("testing_beats.png")
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -64,7 +85,23 @@ if __name__ == "__main__":
     device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
     print("Using ", device , ":")
 
-    inputFile = "path"
-    beats, downbeats = beatTracker(inputFile)
-    plot_beats(inputFile, beats)
+    inputFile = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomData/Waltz/Media-100601.wav"
+    beats = beatTracker(inputFile)
 
+    annotations = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomAnnotations-master/Media-100601.beats"
+    annot = np.loadtxt(annotations)
+
+    plot_beats(inputFile, annot[:,0], beats)
+
+    np.savetxt('ground_truth.txt', annot[:,0], fmt='%.6f') 
+    np.savetxt('predictions.txt',beats, fmt='%.6f') 
+
+    reference_beats = mir_eval.io.load_events('ground_truth.txt')
+    estimated_beats = mir_eval.io.load_events('predictions.txt')
+
+    # Crop out beats before 5s, a common preprocessing step
+    reference_beats = mir_eval.beat.trim_beats(reference_beats)
+    estimated_beats = mir_eval.beat.trim_beats(estimated_beats)
+
+    # Compute the F-measure metric and store it in f_measure
+    print("F-measure using mir_eval library: ", mir_eval.beat.f_measure(reference_beats, estimated_beats))

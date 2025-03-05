@@ -34,8 +34,8 @@ class BeatDataset(Dataset):
         melspec_proc = VGGISH.get_input_processor()
         waveform, original_rate = torchaudio.load(audio_path)
 
-        start_time = 10
-        end_time = 20   #10 seconds
+        start_time = 0
+        end_time = 29   #10 seconds
         waveform = waveform[:, int(start_time*original_rate):int(end_time*original_rate)]   #extract only the 10-20 seconds of the audio
 
         waveform = waveform.squeeze(0)
