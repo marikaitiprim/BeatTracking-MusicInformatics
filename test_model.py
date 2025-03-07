@@ -5,23 +5,24 @@ import matplotlib.pyplot as plt
 from torchaudio.prototype.pipelines import VGGISH
 import numpy as np
 import mir_eval
+from train_model import peak_picking
 
-def vggish_melspectrogram(audio_path):    #returns vggish melspectrogram - adapted for testing
-    melspec_proc = VGGISH.get_input_processor()
-    waveform, original_rate = torchaudio.load(audio_path)
+def vggish_melspectrogram(audio_path):    #returns vggish melspectrogram
+        melspec_proc = VGGISH.get_input_processor()
+        waveform, original_rate = torchaudio.load(audio_path)
 
-    waveform = waveform.squeeze(0)
-    waveform = torchaudio.functional.resample(waveform, original_rate, VGGISH.sample_rate)
-    melspec = melspec_proc(waveform) #(num_setofframes, 96, 64) 
+        waveform = waveform.squeeze(0)
+        waveform = torchaudio.functional.resample(waveform, original_rate, VGGISH.sample_rate)
+        melspec = melspec_proc(waveform) #(num_setofframes, 96, 64) 
 
-    melspec = torch.cat([melspec], dim=0)  # Shape: (num_setofframes, 1, 96, 64)
+        melspec = torch.cat([melspec], dim=0)  # Shape: (num_setofframes, 1, 96, 64)
 
-    return melspec
+        return melspec
 
 def beatTracker(audio_path):
 
-    best_model_path = '/Users/marikaitiprimenta/Desktop/best_model.pth' #path for the pretrained model
-    model = train_model.VGGishfinetune().to(device)
+    best_model_path = '/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/best_model.pth' #change path for the pretrained model
+    model = train_model.CNNBeatTracker().to(device)
     model.load_state_dict(torch.load(best_model_path))
     model.eval()
 
@@ -30,12 +31,11 @@ def beatTracker(audio_path):
     with torch.no_grad():
         xtest = xtest.to(device)
         output = model(xtest)
-        
-        binary_output = torch.where(output < 0.5, 0, 1) #convert output of the model into binary output (as done during training)
+
+        batch_binary_outputs = peak_picking(output, device)       
 
         beat_times = []
-    
-        for frame_set_index, beat_frames in enumerate(binary_output):
+        for frame_set_index, beat_frames in enumerate(batch_binary_outputs):
             for frame_index, is_beat in enumerate(beat_frames):
 
                 if is_beat:
@@ -85,23 +85,25 @@ if __name__ == "__main__":
     device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
     print("Using ", device , ":")
 
-    inputFile = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomData/Waltz/Media-100601.wav"
+    inputFile = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomData/Rumba-Misc/Media-103511.wav" #change path to test with another audio file
     beats = beatTracker(inputFile)
 
-    annotations = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomAnnotations-master/Media-100601.beats"
+    annotations = "/Users/marikaitiprimenta/Desktop/Beat-Tracking---Music-Informatics/BallroomAnnotations-master/Media-103511.beats" # add ground truth to plot the beats 
     annot = np.loadtxt(annotations)
 
     plot_beats(inputFile, annot[:,0], beats)
 
-    np.savetxt('ground_truth.txt', annot[:,0], fmt='%.6f') 
-    np.savetxt('predictions.txt',beats, fmt='%.6f') 
 
-    reference_beats = mir_eval.io.load_events('ground_truth.txt')
-    estimated_beats = mir_eval.io.load_events('predictions.txt')
+    # use for evaluation
+    # np.savetxt('ground_truth.txt', annot[:,0], fmt='%.6f') 
+    # np.savetxt('predictions.txt',beats, fmt='%.6f') 
 
-    # Crop out beats before 5s, a common preprocessing step
-    reference_beats = mir_eval.beat.trim_beats(reference_beats)
-    estimated_beats = mir_eval.beat.trim_beats(estimated_beats)
+    # reference_beats = mir_eval.io.load_events('ground_truth.txt')
+    # estimated_beats = mir_eval.io.load_events('predictions.txt')
 
-    # Compute the F-measure metric and store it in f_measure
-    print("F-measure using mir_eval library: ", mir_eval.beat.f_measure(reference_beats, estimated_beats))
+    # # Crop out beats before 5s, a common preprocessing step
+    # reference_beats = mir_eval.beat.trim_beats(reference_beats)
+    # estimated_beats = mir_eval.beat.trim_beats(estimated_beats)
+
+    # # Compute the F-measure metric and store it in f_measure
+    # print("F-measure using mir_eval library: ", mir_eval.beat.evaluate(reference_beats, estimated_beats))

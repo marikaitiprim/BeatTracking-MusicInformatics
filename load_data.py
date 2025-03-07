@@ -21,7 +21,6 @@ def create_dataset(audio_dir, annotation_dir):      #pair paths from audio and a
 
     return audio_paths, annotation_paths
 
-
 class BeatDataset(Dataset):
     def __init__(self, audio_paths, annotation_paths):
         self.audio_paths, self.annotation_paths = audio_paths, annotation_paths
@@ -30,13 +29,11 @@ class BeatDataset(Dataset):
         annot = np.loadtxt(annotation_path)
         return torch.tensor(annot, dtype=torch.float32)
 
-    def vggish_melspectrogram(self, audio_path):    #returns vggish melspectrogram
+    def vggish_melspectrogram(self, audio_path, start_time, end_time):    #returns vggish melspectrogram
         melspec_proc = VGGISH.get_input_processor()
         waveform, original_rate = torchaudio.load(audio_path)
 
-        start_time = 0
-        end_time = 29   #10 seconds
-        waveform = waveform[:, int(start_time*original_rate):int(end_time*original_rate)]   #extract only the 10-20 seconds of the audio
+        waveform = waveform[:, int(start_time*original_rate):int(end_time*original_rate)] 
 
         waveform = waveform.squeeze(0)
         waveform = torchaudio.functional.resample(waveform, original_rate, VGGISH.sample_rate)
@@ -54,7 +51,7 @@ class BeatDataset(Dataset):
         audio_path = self.audio_paths[idx]
         annotation_path = self.annotation_paths[idx]
 
-        mel_spec = self.vggish_melspectrogram(audio_path)
+        mel_spec = self.vggish_melspectrogram(audio_path, 10, 20)
         annotations = self.load_annotations(annotation_path)
 
         beats = torch.zeros(mel_spec.shape[0]*mel_spec.shape[3])   #matrix of zeros of shape (num_setofframes, 64)
@@ -63,7 +60,7 @@ class BeatDataset(Dataset):
             for frame_index in range(mel_spec.shape[0]* mel_spec.shape[3]):
                 if frame_index*160 + 400 > beat_time_samples and frame_index*160 <= beat_time_samples: #hop_size = 160 and frame_size = 400 for VGGish
                     beats[frame_index] = 1
-
+     
         return mel_spec, beats 
 
 
